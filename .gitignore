@@ -1,0 +1,91 @@
+# ========================================================
+# 1. VARIABLES DE ENTORNO Y DATOS SENSIBLES (FRONT Y BACK)
+# ========================================================
+.env
+.env.*
+*.env
+frontend/.env
+frontend/.env.*
+backend/.env
+backend/.env.*
+!.env.example
+!frontend/.env.example
+!backend/.env.example
+
+# Certificados y llaves privadas
+*.pem
+*.key
+*.crt
+*.p12
+
+# ========================================================
+# 2. CARPETAS DE CONTEXTO INTERNO, PROPUESTAS Y DOCUMENTOS
+# ========================================================
+feadback/
+/feadback
+propuesta_comercial/
+/propuesta_comercial
+PLAN_MAESTRO_ROATAN.md
+*.pdf
+
+# ========================================================
+# 3. DEPENDENCIAS Y PAQUETES
+# ========================================================
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+.pnp
+.pnp.js
+.yarn/
+
+# ========================================================
+# 4. COMPILADOS, BUILD Y CACHÉ (VITE / TS / NODE)
+# ========================================================
+dist/
+dist-ssr/
+build/
+out/
+.vite/
+*.tsbuildinfo
+
+# ========================================================
+# 5. VERCEL Y PLATAFORMAS DE DESPLIEGUE
+# ========================================================
+.vercel/
+.netlify/
+
+# ========================================================
+# 6. PRISMA / BASES DE DATOS LOCALES Y DUMPS
+# ========================================================
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+
+# ========================================================
+# 7. LOGS Y DIAGNÓSTICOS
+# ========================================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ========================================================
+# 8. SISTEMA OPERATIVO Y EDITORES DE CÓDIGO
+# ========================================================
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
