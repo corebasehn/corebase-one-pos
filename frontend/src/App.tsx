@@ -74,13 +74,13 @@ export function App() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm text-white tracking-tight">CoreBase Solutions</span>
+                <span className="font-extrabold text-sm text-white tracking-tight">CoreBase One</span>
                 <span className="text-[10px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.2 rounded font-mono font-bold">
-                  WMS 3D • ROATÁN
+                  POS 3D • SUITE
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Sistema POS, Inventario con Alertas EE. UU. y Bodega en 3D
+                Punto de Venta, Inventario Inteligente y Gemelo Digital 3D
               </p>
             </div>
           </div>
@@ -253,10 +253,10 @@ export function App() {
       <footer className="bg-[#040b16] border-t border-slate-800 text-[11px] text-slate-400 py-3 px-4">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>
-            <strong>CoreBase Solutions S. de R.L.</strong> • Soluciones de Software Industrial, WMS 3D y Automatización
+            <strong>CoreBase One POS 3D</strong> • Un producto de <strong>CoreBase Solutions S. de R.L.</strong>
           </span>
           <span className="text-slate-400">
-            Diseñado para Bodega de Repuestos Marinos • Roatán, Islas de la Bahía
+            Suite Empresarial de Punto de Venta, Inventario y Bodega 3D
           </span>
         </div>
       </footer>
