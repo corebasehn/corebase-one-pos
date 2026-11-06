@@ -132,9 +132,37 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
     }
   };
 
+  const highlightedZonesRef = useRef<Set<string>>(new Set());
+
+  // Sync highlighted zones whenever selectedProduct, pinnedInfo, or searchQuery changes
+  useEffect(() => {
+    const set = new Set<string>();
+    if (selectedProduct?.ubicacionId) {
+      set.add(selectedProduct.ubicacionId);
+    }
+    if (pinnedInfo?.zoneCode) {
+      set.add(pinnedInfo.zoneCode);
+    }
+    if (searchQuery.trim().length > 0) {
+      const q = searchQuery.toLowerCase();
+      products.forEach((p) => {
+        if (
+          p.ubicacionId &&
+          (p.nombre.toLowerCase().includes(q) ||
+            p.sku.toLowerCase().includes(q) ||
+            p.ubicacionId.toLowerCase().includes(q))
+        ) {
+          set.add(p.ubicacionId);
+        }
+      });
+    }
+    highlightedZonesRef.current = set;
+  }, [selectedProduct, pinnedInfo, searchQuery, products]);
+
   // Fly to selected product if changed externally (e.g. from POS or Inventory)
   useEffect(() => {
     if (selectedProduct && selectedProduct.ubicacionId) {
+      setPinnedInfo({ zoneCode: selectedProduct.ubicacionId, product: selectedProduct });
       const binItem = binsMapRef.current.get(selectedProduct.ubicacionId);
       if (binItem) {
         const pos = new THREE.Vector3();
@@ -567,12 +595,25 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
       binMesh.castShadow = true;
       binMesh.receiveShadow = true;
 
+      // Neon wireframe outline for filtered/selected highlight
+      const edgesGeo = new THREE.EdgesGeometry(binGeo);
+      const outlineMat = new THREE.LineBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+      });
+      const outlineMesh = new THREE.LineSegments(edgesGeo, outlineMat);
+      binMesh.add(outlineMesh);
+
       binMesh.userData = {
         zoneCode: zona.codigoUbicacion,
         product: assignedProd,
         rackCode: rack.codigo,
         nivel: nivel,
         isCritical: isCritical,
+        baseColor: binColor,
+        baseOpacity: opacity,
+        outlineMat: outlineMat,
       };
 
       parentGroup.add(binMesh);
@@ -612,7 +653,7 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
         // Hover Raycasting
         raycaster.setFromCamera(mouse, camera);
         const meshes = Array.from(binsMapRef.current.values()).map((v) => v.mesh);
-        const intersects = raycaster.intersectObjects(meshes);
+        const intersects = raycaster.intersectObjects(meshes, false);
 
         if (intersects.length > 0) {
           const hit = intersects[0].object;
@@ -636,7 +677,7 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
       if (dist < 4) {
         raycaster.setFromCamera(mouse, camera);
         const meshes = Array.from(binsMapRef.current.values()).map((v) => v.mesh);
-        const intersects = raycaster.intersectObjects(meshes);
+        const intersects = raycaster.intersectObjects(meshes, false);
 
         if (intersects.length > 0) {
           const hit = intersects[0].object;
@@ -743,7 +784,7 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
 
           raycaster.setFromCamera(mouse, camera);
           const meshes = Array.from(binsMapRef.current.values()).map((v) => v.mesh);
-          const intersects = raycaster.intersectObjects(meshes);
+          const intersects = raycaster.intersectObjects(meshes, false);
 
           if (intersects.length > 0) {
             const hit = intersects[0].object;
@@ -809,13 +850,36 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
       camera.position.z = ctrl.target.z + ctrl.radius * Math.sin(ctrl.phi) * Math.cos(ctrl.theta);
       camera.lookAt(ctrl.target);
 
-      // Pulse red bins (critical alert)
-      binsMapRef.current.forEach(({ mesh }) => {
-        if (mesh.userData.isCritical) {
-          const mat = mesh.material as THREE.MeshStandardMaterial;
-          const pulse = (Math.sin(pulseTime * 3) + 1) / 2;
-          mat.emissive.setHex(0xff0000);
-          mat.emissiveIntensity = 0.35 + pulse * 0.65;
+      // Pulse highlighted/filtered bins in Electric Blue, and critical bins in Red
+      const pulse = (Math.sin(pulseTime * 3) + 1) / 2;
+      const fastPulse = (Math.sin(pulseTime * 6) + 1) / 2;
+
+      binsMapRef.current.forEach(({ mesh, zoneCode }) => {
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        const outlineMat = mesh.userData.outlineMat as THREE.LineBasicMaterial | undefined;
+        const isHighlighted = highlightedZonesRef.current.has(zoneCode);
+
+        if (isHighlighted) {
+          mat.color.setHex(0x0088ff); // Electric Blue
+          mat.emissive.setHex(0x00f0ff); // Neon Cyan Flash
+          mat.emissiveIntensity = 0.65 + fastPulse * 1.15;
+          mat.opacity = 1.0;
+          if (outlineMat) outlineMat.opacity = 0.95;
+          const s = 1 + fastPulse * 0.14;
+          mesh.scale.set(s, s, s);
+        } else {
+          mat.color.setHex(mesh.userData.baseColor ?? 0x334155);
+          mat.opacity = mesh.userData.baseOpacity ?? 0.85;
+          if (outlineMat) outlineMat.opacity = 0;
+          mesh.scale.set(1, 1, 1);
+
+          if (mesh.userData.isCritical) {
+            mat.emissive.setHex(0xff0000);
+            mat.emissiveIntensity = 0.35 + pulse * 0.65;
+          } else {
+            mat.emissive.setHex(0x000000);
+            mat.emissiveIntensity = 0;
+          }
         }
       });
 
@@ -1054,6 +1118,7 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
                   onClick={() => {
                     setPinnedInfo(null);
                     setHoveredInfo(null);
+                    onSelectProduct(null);
                   }}
                   className="text-slate-400 hover:text-white p-0.5 rounded"
                   title="Cerrar tarjeta"
@@ -1136,6 +1201,10 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
 
       {/* Bottom Right Accurate Legend */}
       <div className="absolute bottom-3 right-3 z-10 bg-[#0c1c33]/85 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-700/60 flex flex-wrap items-center gap-3 text-[11px] pointer-events-none text-slate-300 shadow-md">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm bg-cyan-400 animate-ping" />
+          <span className="text-cyan-300 font-bold">Buscado / Seleccionado</span>
+        </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
           <span>Óptimo</span>
