@@ -1,7 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import type { Estante, Producto } from '../types';
-import { AlertTriangle, Maximize2, Minimize2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Maximize2,
+  Minimize2,
+  Search,
+  ShoppingCart,
+  Printer,
+  Settings,
+  X,
+} from 'lucide-react';
 
 interface Warehouse3DProps {
   racks: Estante[];
@@ -9,6 +18,9 @@ interface Warehouse3DProps {
   selectedProduct: Producto | null;
   onSelectProduct: (product: Producto | null) => void;
   onSelectZone: (zoneCode: string) => void;
+  onGoToPos?: (product: Producto) => void;
+  onPrintLabel?: (product: Producto) => void;
+  onGoToConfig?: (zoneCode: string) => void;
 }
 
 export const Warehouse3D: React.FC<Warehouse3DProps> = ({
@@ -17,10 +29,15 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
   selectedProduct,
   onSelectProduct,
   onSelectZone,
+  onGoToPos,
+  onPrintLabel,
+  onGoToConfig,
 }) => {
   const rootContainerRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const [hoveredInfo, setHoveredInfo] = useState<{ zoneCode: string; product?: Producto } | null>(null);
+  const [pinnedInfo, setPinnedInfo] = useState<{ zoneCode: string; product?: Producto } | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   // Internal Three.js references
@@ -626,12 +643,15 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
           const zoneCode = hit.userData.zoneCode;
           const prod = hit.userData.product;
 
+          setPinnedInfo({ zoneCode, product: prod });
           onSelectZone(zoneCode);
           if (prod) {
             onSelectProduct(prod);
           } else {
             onSelectProduct(null);
           }
+        } else {
+          setPinnedInfo(null);
         }
       }
     };
@@ -730,6 +750,10 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
             const zoneCode = hit.userData.zoneCode;
             const prod = hit.userData.product;
 
+            setPinnedInfo({
+              zoneCode,
+              product: prod,
+            });
             setHoveredInfo({
               zoneCode,
               product: prod,
@@ -737,6 +761,7 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
             onSelectZone(zoneCode);
             onSelectProduct(prod || null);
           } else {
+            setPinnedInfo(null);
             setHoveredInfo(null);
           }
         }
@@ -823,6 +848,37 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
   const occupiedSlots = products.filter((p) => p.ubicacionId).length;
   const criticalProducts = products.filter((p) => p.stockActual <= p.stockMinimoAlerta);
 
+  // Quick 3D search matches
+  const searchResults =
+    searchQuery.trim().length > 0
+      ? products.filter(
+          (p) =>
+            p.ubicacionId &&
+            (p.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              p.ubicacionId.toLowerCase().includes(searchQuery.toLowerCase()))
+        )
+      : [];
+
+  const handleSelectSearchResult = (prod: Producto) => {
+    setSearchQuery('');
+    if (prod.ubicacionId) {
+      setPinnedInfo({ zoneCode: prod.ubicacionId, product: prod });
+      onSelectZone(prod.ubicacionId);
+      onSelectProduct(prod);
+      const binItem = binsMapRef.current.get(prod.ubicacionId);
+      if (binItem) {
+        const pos = new THREE.Vector3();
+        binItem.mesh.getWorldPosition(pos);
+        camControl.current.desiredTarget.copy(pos);
+        camControl.current.desiredRadius = window.innerWidth < 768 ? 8.5 : 6.0;
+        camControl.current.desiredPhi = 1.15;
+      }
+    }
+  };
+
+  const activeInfo = pinnedInfo || hoveredInfo;
+
   return (
     <div
       ref={rootContainerRef}
@@ -834,17 +890,63 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
     >
       {/* Top HUD Control Bar */}
       <div className="absolute top-2.5 left-2.5 right-2.5 z-10 flex flex-wrap items-center justify-between gap-1.5 pointer-events-none">
-        {/* Left Status & Telemetry */}
-        <div className="flex items-center gap-1.5 sm:gap-2 bg-[#0c1c33]/90 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-[#00d4ff]/30 pointer-events-auto shadow-lg">
-          <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#10b981]" />
-          <span className="text-[11px] sm:text-xs font-bold text-white tracking-wider">GEMELO 3D</span>
-          <span className="text-[11px] sm:text-xs text-slate-400 border-l border-slate-700 pl-2">
-            Casillas: <strong className="text-cyan-400">{occupiedSlots}</strong>/{totalSlots}
-          </span>
-          <span className="text-[11px] sm:text-xs text-red-400 border-l border-slate-700 pl-2 flex items-center gap-1 font-semibold">
-            <AlertTriangle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-400" />
-            <span>EE. UU.:</span> <strong>{criticalProducts.length}</strong>
-          </span>
+        {/* Left Status, Telemetry & Quick 3D Search */}
+        <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+          <div className="flex items-center gap-1.5 sm:gap-2 bg-[#0c1c33]/90 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-[#00d4ff]/30 shadow-lg">
+            <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#10b981]" />
+            <span className="text-[11px] sm:text-xs font-bold text-white tracking-wider">GEMELO 3D</span>
+            <span className="text-[11px] sm:text-xs text-slate-400 border-l border-slate-700 pl-2">
+              Casillas: <strong className="text-cyan-400">{occupiedSlots}</strong>/{totalSlots}
+            </span>
+            <span className="text-[11px] sm:text-xs text-red-400 border-l border-slate-700 pl-2 flex items-center gap-1 font-semibold">
+              <AlertTriangle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-400" />
+              <span>Críticos:</span> <strong>{criticalProducts.length}</strong>
+            </span>
+          </div>
+
+          {/* Quick Search inside 3D */}
+          <div className="relative">
+            <div className="flex items-center bg-[#0c1c33]/95 backdrop-blur-md border border-cyan-500/40 rounded-lg px-2.5 py-1 shadow-lg">
+              <Search className="w-3.5 h-3.5 text-cyan-400 mr-1.5 shrink-0" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar producto o casilla en 3D..."
+                className="bg-transparent text-xs text-white placeholder-slate-400 focus:outline-none w-44 sm:w-56"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="text-slate-400 hover:text-white ml-1"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {searchResults.length > 0 && (
+              <div className="absolute left-0 mt-1 w-72 bg-[#091528]/98 backdrop-blur-md border border-cyan-500/50 rounded-xl shadow-2xl overflow-hidden z-30 max-h-56 overflow-y-auto">
+                {searchResults.map((prod) => (
+                  <button
+                    key={prod.id}
+                    onClick={() => handleSelectSearchResult(prod)}
+                    className="w-full text-left px-3 py-2 hover:bg-cyan-500/20 border-b border-slate-800/80 last:border-none flex items-center justify-between gap-2 transition cursor-pointer"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-white truncate">{prod.nombre}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">
+                        SKU: {prod.sku} • Stock: {prod.stockActual} uds
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-cyan-300 bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-500/30 shrink-0">
+                      {prod.ubicacionId}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right Dynamic Camera Preset Controls & Fullscreen Toggle */}
@@ -918,74 +1020,125 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
         className="w-full h-full flex-1 min-h-0 touch-none select-none cursor-grab active:cursor-grabbing"
       />
 
-      {/* Floating Hover Information Card */}
-      {hoveredInfo && (
-        <div className="absolute bottom-4 left-4 z-10 bg-[#0c1c33]/95 backdrop-blur-md p-3.5 rounded-xl border border-[#00d4ff]/40 shadow-2xl max-w-sm pointer-events-none transition-all">
+      {/* Floating Interactive Information & Action Card */}
+      {activeInfo && (
+        <div className="absolute bottom-4 left-4 z-20 bg-[#0c1c33]/95 backdrop-blur-md p-3.5 rounded-xl border border-[#00d4ff]/50 shadow-2xl max-w-sm pointer-events-auto transition-all">
           <div className="flex items-center justify-between gap-2 border-b border-slate-700/60 pb-1.5 mb-2">
             <span className="text-xs font-bold font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/30">
-              {hoveredInfo.zoneCode}
+              {activeInfo.zoneCode}
             </span>
-            {hoveredInfo.product ? (
-              hoveredInfo.product.stockActual <= hoveredInfo.product.stockMinimoAlerta ? (
-                <span className="text-[10px] font-bold text-red-400 bg-red-950/80 px-2 py-0.5 rounded border border-red-500/40 flex items-center gap-1 animate-pulse">
-                  <AlertTriangle className="w-3 h-3" /> CRÍTICO: PEDIR {hoveredInfo.product.cantidadReordenSugerida} A USA
-                </span>
-              ) : hoveredInfo.product.stockActual <= hoveredInfo.product.stockMinimoAlerta * 1.5 ? (
-                <span className="text-[10px] font-bold text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/40 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 text-amber-400" /> STOCK PREVENTIVO (≤{Math.round(hoveredInfo.product.stockMinimoAlerta * 1.5)})
-                </span>
+            <div className="flex items-center gap-1.5">
+              {activeInfo.product ? (
+                activeInfo.product.stockActual <= activeInfo.product.stockMinimoAlerta ? (
+                  <span className="text-[10px] font-bold text-red-400 bg-red-950/80 px-2 py-0.5 rounded border border-red-500/40 flex items-center gap-1 animate-pulse">
+                    <AlertTriangle className="w-3 h-3" /> CRÍTICO: PEDIR {activeInfo.product.cantidadReordenSugerida}
+                  </span>
+                ) : activeInfo.product.stockActual <= activeInfo.product.stockMinimoAlerta * 1.5 ? (
+                  <span className="text-[10px] font-bold text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/40 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3 text-amber-400" /> STOCK PREVENTIVO (≤
+                    {Math.round(activeInfo.product.stockMinimoAlerta * 1.5)})
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
+                    STOCK SALUDABLE
+                  </span>
+                )
               ) : (
-                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
-                  STOCK SALUDABLE
+                <span className="text-[10px] font-medium text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
+                  CASILLA DISPONIBLE
                 </span>
-              )
-            ) : (
-              <span className="text-[10px] font-medium text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
-                CASILLA DISPONIBLE
-              </span>
-            )}
+              )}
+
+              {pinnedInfo && (
+                <button
+                  onClick={() => {
+                    setPinnedInfo(null);
+                    setHoveredInfo(null);
+                  }}
+                  className="text-slate-400 hover:text-white p-0.5 rounded"
+                  title="Cerrar tarjeta"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
-          {hoveredInfo.product ? (
+          {activeInfo.product ? (
             <div>
-              <p className="text-sm font-bold text-white line-clamp-1">{hoveredInfo.product.nombre}</p>
+              <p className="text-sm font-bold text-white line-clamp-1">{activeInfo.product.nombre}</p>
               <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-300">
                 <span>
-                  SKU: <strong className="text-slate-100 font-mono">{hoveredInfo.product.sku}</strong>
+                  SKU: <strong className="text-slate-100 font-mono">{activeInfo.product.sku}</strong>
                 </span>
                 <span>
                   Stock:{' '}
                   <strong
                     className={
-                      hoveredInfo.product.stockActual <= hoveredInfo.product.stockMinimoAlerta
+                      activeInfo.product.stockActual <= activeInfo.product.stockMinimoAlerta
                         ? 'text-red-400 font-bold'
-                        : hoveredInfo.product.stockActual <= hoveredInfo.product.stockMinimoAlerta * 1.5
+                        : activeInfo.product.stockActual <= activeInfo.product.stockMinimoAlerta * 1.5
                         ? 'text-amber-400 font-bold'
                         : 'text-emerald-400'
                     }
                   >
-                    {hoveredInfo.product.stockActual} uds
+                    {activeInfo.product.stockActual} uds
                   </strong>
                 </span>
                 <span>
                   Precio:{' '}
                   <strong className="text-cyan-300">
-                    L. {hoveredInfo.product.precioVentaHnl.toLocaleString()}
+                    L. {activeInfo.product.precioVentaHnl.toLocaleString()}
                   </strong>
                 </span>
               </div>
+
+              {/* Action buttons when interacting with a slot */}
+              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-800">
+                {onGoToPos && (
+                  <button
+                    onClick={() => onGoToPos(activeInfo.product!)}
+                    className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-[11px] py-1.5 px-2.5 rounded-lg flex items-center justify-center gap-1 transition cursor-pointer"
+                  >
+                    <ShoppingCart className="w-3 h-3" />
+                    <span>Vender en POS</span>
+                  </button>
+                )}
+                {onPrintLabel && (
+                  <button
+                    onClick={() => onPrintLabel(activeInfo.product!)}
+                    className="bg-[#112645] hover:bg-slate-700 text-cyan-300 font-bold text-[11px] py-1.5 px-2.5 rounded-lg flex items-center justify-center gap-1 border border-cyan-500/30 transition cursor-pointer"
+                  >
+                    <Printer className="w-3 h-3" />
+                    <span>Viñeta</span>
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
-            <p className="text-xs text-slate-400 italic">Haz clic para asignar un repuesto a esta casilla física.</p>
+            <div className="space-y-2">
+              <p className="text-xs text-slate-400 italic">
+                Casilla libre en el estante. Puedes asignarle un producto desde el configurador.
+              </p>
+              {onGoToConfig && (
+                <button
+                  onClick={() => onGoToConfig(activeInfo.zoneCode)}
+                  className="w-full bg-[#112645] hover:bg-cyan-500 text-cyan-300 hover:text-slate-950 font-bold text-[11px] py-1.5 px-2.5 rounded-lg flex items-center justify-center gap-1.5 border border-cyan-500/30 transition cursor-pointer"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>Asignar Producto a {activeInfo.zoneCode}</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
 
-      {/* Bottom Right Legend */}
-      <div className="absolute bottom-3 right-3 z-10 bg-[#0c1c33]/85 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-700/60 flex items-center gap-3 text-[11px] pointer-events-none text-slate-300 shadow-md">
+      {/* Bottom Right Accurate Legend */}
+      <div className="absolute bottom-3 right-3 z-10 bg-[#0c1c33]/85 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-700/60 flex flex-wrap items-center gap-3 text-[11px] pointer-events-none text-slate-300 shadow-md">
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
-          <span>Óptimo (&gt;20)</span>
+          <span>Óptimo</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
@@ -993,7 +1146,7 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-sm bg-red-500 animate-pulse" />
-          <span>Alerta EE. UU. (≤10)</span>
+          <span>Crítico (Pedir)</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-sm bg-slate-600 opacity-60" />
