@@ -30,17 +30,24 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
   const binsMapRef = useRef<Map<string, { mesh: THREE.Mesh; zoneCode: string; product?: Producto }>>(new Map());
   const animFrameRef = useRef<number | null>(null);
 
-  // Fullscreen toggle handler
+  // Fullscreen toggle handler (with CSS fallback for iOS/Mobile browsers)
   const toggleFullscreen = () => {
     if (!rootContainerRef.current) return;
-    if (!document.fullscreenElement) {
-      rootContainerRef.current.requestFullscreen().catch((err) => {
-        console.error('Error al entrar a pantalla completa:', err);
-      });
+    if (document.fullscreenEnabled && rootContainerRef.current.requestFullscreen) {
+      if (!document.fullscreenElement) {
+        rootContainerRef.current.requestFullscreen().catch(() => {
+          setIsFullscreen((prev) => !prev);
+          setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+        });
+      } else {
+        document.exitFullscreen().catch(() => {
+          setIsFullscreen(false);
+          setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+        });
+      }
     } else {
-      document.exitFullscreen().catch((err) => {
-        console.error('Error al salir de pantalla completa:', err);
-      });
+      setIsFullscreen((prev) => !prev);
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
     }
   };
 
@@ -58,15 +65,18 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  const initialMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const defaultRadius = initialMobile ? 30 : 22;
+
   // Camera Orbit Control state - Default CCTV Camera Angle matching BodegaReal.jpg
   const camControl = useRef({
     theta: 0,
     phi: 1.05,
-    radius: 22,
+    radius: defaultRadius,
     target: new THREE.Vector3(0, 1.2, -1.0),
     desiredTheta: 0,
     desiredPhi: 1.05,
-    desiredRadius: 22,
+    desiredRadius: defaultRadius,
     desiredTarget: new THREE.Vector3(0, 1.2, -1.0),
     isDragging: false,
     prevX: 0,
@@ -76,8 +86,9 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
   // Focus specific rack
   const focusRack = (rack: Estante) => {
     const ctrl = camControl.current;
+    const isNarrow = window.innerWidth < 768;
     ctrl.desiredTarget.set(rack.posX, rack.altoM * 0.45, rack.posZ);
-    ctrl.desiredRadius = Math.max(rack.anchoM * 1.5, 6.5);
+    ctrl.desiredRadius = Math.max(rack.anchoM * (isNarrow ? 2.1 : 1.5), isNarrow ? 9.0 : 6.5);
     ctrl.desiredPhi = 1.08;
     ctrl.desiredTheta = rack.posX < 0 ? -0.35 : 0.35;
   };
@@ -85,20 +96,21 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
   // Preset Views
   const setCameraView = (type: 'cctv' | 'isometric' | 'top') => {
     const ctrl = camControl.current;
+    const isNarrow = window.innerWidth < 768;
     if (type === 'cctv') {
       ctrl.desiredTheta = 0;
       ctrl.desiredPhi = 1.05;
-      ctrl.desiredRadius = 22;
+      ctrl.desiredRadius = isNarrow ? 30 : 22;
       ctrl.desiredTarget.set(0, 1.2, -1.0);
     } else if (type === 'isometric') {
       ctrl.desiredTheta = 0.65;
       ctrl.desiredPhi = 0.95;
-      ctrl.desiredRadius = 23;
+      ctrl.desiredRadius = isNarrow ? 31 : 23;
       ctrl.desiredTarget.set(0, 1.2, 0);
     } else if (type === 'top') {
       ctrl.desiredTheta = 0;
       ctrl.desiredPhi = 0.05;
-      ctrl.desiredRadius = 24;
+      ctrl.desiredRadius = isNarrow ? 32 : 24;
       ctrl.desiredTarget.set(0, 0, 0);
     }
   };
@@ -111,7 +123,7 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
         const pos = new THREE.Vector3();
         binItem.mesh.getWorldPosition(pos);
         camControl.current.desiredTarget.copy(pos);
-        camControl.current.desiredRadius = 6.0;
+        camControl.current.desiredRadius = window.innerWidth < 768 ? 8.5 : 6.0;
         camControl.current.desiredPhi = 1.15;
       }
     }
@@ -121,6 +133,8 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
     const container = mountRef.current;
     if (!container) return;
 
+    const isMobileDevice = window.innerWidth < 768 || 'ontouchstart' in window;
+
     // 1. SCENE
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x060f1e);
@@ -128,30 +142,35 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
     sceneRef.current = scene;
 
     // 2. CAMERA
-    const width = container.clientWidth;
-    const height = container.clientHeight;
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+    const width = Math.max(container.clientWidth, 300);
+    const height = Math.max(container.clientHeight, 360);
+    const camera = new THREE.PerspectiveCamera(width < height ? 55 : 45, width / height, 0.1, 100);
     cameraRef.current = camera;
 
     // 3. RENDERER
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !isMobileDevice,
+      powerPreference: isMobileDevice ? 'default' : 'high-performance',
+    });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobileDevice ? 1.5 : 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.domElement.style.touchAction = 'none';
+    renderer.domElement.style.display = 'block';
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
     // 4. LIGHTS
-    const ambientLight = new THREE.AmbientLight(0xdbeafe, 0.7);
+    const ambientLight = new THREE.AmbientLight(0xdbeafe, 0.75);
     scene.add(ambientLight);
 
     const mainLight = new THREE.DirectionalLight(0xffffff, 1.3);
     mainLight.position.set(12, 18, 10);
     mainLight.castShadow = true;
-    mainLight.shadow.mapSize.width = 1024;
-    mainLight.shadow.mapSize.height = 1024;
+    mainLight.shadow.mapSize.width = isMobileDevice ? 512 : 1024;
+    mainLight.shadow.mapSize.height = isMobileDevice ? 512 : 1024;
     scene.add(mainLight);
 
     // Cyan high-tech fill
@@ -625,21 +644,128 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
       );
     };
 
+    // 8b. TOUCH CONTROLS (Mobile 1-Finger Orbit, 2-Finger Pinch Zoom & Tap Raycasting)
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let lastPinchDist = 0;
+    let lastTouchCenterX = 0;
+    let lastTouchCenterY = 0;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+        camControl.current.isDragging = true;
+        camControl.current.prevX = t.clientX;
+        camControl.current.prevY = t.clientY;
+      } else if (e.touches.length === 2) {
+        camControl.current.isDragging = false;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastPinchDist = Math.hypot(dx, dy);
+        lastTouchCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        lastTouchCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+
+      if (e.touches.length === 1 && camControl.current.isDragging) {
+        const t = e.touches[0];
+        const deltaX = t.clientX - camControl.current.prevX;
+        const deltaY = t.clientY - camControl.current.prevY;
+        camControl.current.desiredTheta -= deltaX * 0.008;
+        camControl.current.desiredPhi = Math.max(
+          0.08,
+          Math.min(Math.PI / 2 - 0.02, camControl.current.desiredPhi - deltaY * 0.008)
+        );
+        camControl.current.prevX = t.clientX;
+        camControl.current.prevY = t.clientY;
+      } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+
+        if (lastPinchDist > 0) {
+          const pinchDelta = lastPinchDist - dist;
+          camControl.current.desiredRadius = Math.max(
+            4,
+            Math.min(42, camControl.current.desiredRadius + pinchDelta * 0.045)
+          );
+        }
+        lastPinchDist = dist;
+
+        // 2-finger pan
+        const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        const panX = (centerX - lastTouchCenterX) * 0.015;
+        const panZ = (centerY - lastTouchCenterY) * 0.015;
+        camControl.current.desiredTarget.x = Math.max(-12, Math.min(12, camControl.current.desiredTarget.x - panX));
+        camControl.current.desiredTarget.z = Math.max(-10, Math.min(10, camControl.current.desiredTarget.z - panZ));
+        lastTouchCenterX = centerX;
+        lastTouchCenterY = centerY;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      camControl.current.isDragging = false;
+      lastPinchDist = 0;
+
+      if (e.changedTouches.length === 1) {
+        const t = e.changedTouches[0];
+        const moveDist = Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY);
+        if (moveDist < 12) {
+          const rect = container.getBoundingClientRect();
+          mouse.x = ((t.clientX - rect.left) / rect.width) * 2 - 1;
+          mouse.y = -((t.clientY - rect.top) / rect.height) * 2 + 1;
+
+          raycaster.setFromCamera(mouse, camera);
+          const meshes = Array.from(binsMapRef.current.values()).map((v) => v.mesh);
+          const intersects = raycaster.intersectObjects(meshes);
+
+          if (intersects.length > 0) {
+            const hit = intersects[0].object;
+            const zoneCode = hit.userData.zoneCode;
+            const prod = hit.userData.product;
+
+            setHoveredInfo({
+              zoneCode,
+              product: prod,
+            });
+            onSelectZone(zoneCode);
+            onSelectProduct(prod || null);
+          } else {
+            setHoveredInfo(null);
+          }
+        }
+      }
+    };
+
     container.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     container.addEventListener('wheel', onWheel, { passive: false });
+    container.addEventListener('touchstart', onTouchStart, { passive: true });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd, { passive: true });
 
-    // 9. RESIZE LISTENER
+    // 9. RESIZE LISTENER & RESIZE OBSERVER
     const onResize = () => {
       if (!container || !camera || !renderer) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
+      const w = Math.max(container.clientWidth, 280);
+      const h = Math.max(container.clientHeight, 320);
+      camera.fov = w < h ? 55 : 45;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
     };
     window.addEventListener('resize', onResize);
+
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => onResize()) : null;
+    if (resizeObserver) resizeObserver.observe(container);
 
     // 10. ANIMATION LOOP
     let pulseTime = 0;
@@ -679,7 +805,11 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
       window.removeEventListener('resize', onResize);
+      if (resizeObserver) resizeObserver.disconnect();
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       renderer.dispose();
     };
@@ -697,51 +827,53 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
     <div
       ref={rootContainerRef}
       className={`relative w-full bg-[#06101e] overflow-hidden border border-[#00d4ff]/30 shadow-2xl flex flex-col transition-all duration-200 ${
-        isFullscreen ? 'fixed inset-0 z-50 h-screen w-screen rounded-none border-none' : 'h-[650px] rounded-xl'
+        isFullscreen
+          ? 'fixed inset-0 z-50 h-[100dvh] w-screen rounded-none border-none'
+          : 'h-[520px] sm:h-[650px] rounded-xl'
       }`}
     >
       {/* Top HUD Control Bar */}
-      <div className="absolute top-3 left-3 right-3 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+      <div className="absolute top-2.5 left-2.5 right-2.5 z-10 flex flex-wrap items-center justify-between gap-1.5 pointer-events-none">
         {/* Left Status & Telemetry */}
-        <div className="flex items-center gap-2 bg-[#0c1c33]/90 backdrop-blur-md px-3 py-1.5 rounded-lg border border-[#00d4ff]/30 pointer-events-auto shadow-lg">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#10b981]" />
-          <span className="text-xs font-bold text-white tracking-wider">GEMELO DIGITAL 3D • ROATÁN</span>
-          <span className="text-xs text-slate-400 border-l border-slate-700 pl-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 bg-[#0c1c33]/90 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-[#00d4ff]/30 pointer-events-auto shadow-lg">
+          <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#10b981]" />
+          <span className="text-[11px] sm:text-xs font-bold text-white tracking-wider">GEMELO 3D</span>
+          <span className="text-[11px] sm:text-xs text-slate-400 border-l border-slate-700 pl-2">
             Casillas: <strong className="text-cyan-400">{occupiedSlots}</strong>/{totalSlots}
           </span>
-          <span className="text-xs text-red-400 border-l border-slate-700 pl-2 flex items-center gap-1 font-semibold">
-            <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-            Alertas EE. UU.: <strong>{criticalProducts.length}</strong>
+          <span className="text-[11px] sm:text-xs text-red-400 border-l border-slate-700 pl-2 flex items-center gap-1 font-semibold">
+            <AlertTriangle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-400" />
+            <span>EE. UU.:</span> <strong>{criticalProducts.length}</strong>
           </span>
         </div>
 
         {/* Right Dynamic Camera Preset Controls & Fullscreen Toggle */}
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="flex items-center gap-1.5 bg-[#0c1c33]/90 backdrop-blur-md p-1 rounded-lg border border-[#00d4ff]/30 shadow-lg overflow-x-auto max-w-[55vw]">
+        <div className="flex items-center gap-1.5 pointer-events-auto max-w-full">
+          <div className="flex items-center gap-1 bg-[#0c1c33]/90 backdrop-blur-md p-1 rounded-lg border border-[#00d4ff]/30 shadow-lg overflow-x-auto max-w-[68vw] sm:max-w-[55vw]">
             <button
               onClick={() => setCameraView('cctv')}
-              className="px-2.5 py-1 text-xs font-bold text-emerald-400 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/40 rounded transition whitespace-nowrap"
+              className="px-2 py-1 text-[11px] sm:text-xs font-bold text-emerald-400 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/40 rounded transition whitespace-nowrap"
               title="Vista idéntica a la cámara de seguridad (BodegaReal.jpg)"
             >
-              Cámara Real (CCTV)
+              Cámara Real
             </button>
             <button
               onClick={() => setCameraView('isometric')}
-              className="px-2.5 py-1 text-xs font-medium text-slate-200 hover:text-cyan-300 hover:bg-[#112645] rounded transition whitespace-nowrap"
+              className="px-2 py-1 text-[11px] sm:text-xs font-medium text-slate-200 hover:text-cyan-300 hover:bg-[#112645] rounded transition whitespace-nowrap"
               title="Vista Isométrica 360°"
             >
               Isométrica
             </button>
             <button
               onClick={() => setCameraView('top')}
-              className="px-2.5 py-1 text-xs font-medium text-slate-200 hover:text-cyan-300 hover:bg-[#112645] rounded transition whitespace-nowrap"
+              className="px-2 py-1 text-[11px] sm:text-xs font-medium text-slate-200 hover:text-cyan-300 hover:bg-[#112645] rounded transition whitespace-nowrap"
               title="Plano Cenital Superior"
             >
               Cenital
             </button>
 
             {/* Dynamic Pill for Every Rack */}
-            <div className="h-4 w-[1px] bg-slate-700 mx-1" />
+            <div className="h-4 w-[1px] bg-slate-700 mx-0.5" />
             {racks.map((rack) => (
               <button
                 key={rack.id}
@@ -758,7 +890,7 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
           {/* Fullscreen Button */}
           <button
             onClick={toggleFullscreen}
-            className={`px-3 py-1.5 text-xs font-extrabold rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shadow-lg backdrop-blur-md ${
+            className={`px-2.5 sm:px-3 py-1.5 text-xs font-extrabold rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shadow-lg backdrop-blur-md ${
               isFullscreen
                 ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
                 : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-500/20'
@@ -768,12 +900,12 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
             {isFullscreen ? (
               <>
                 <Minimize2 className="w-3.5 h-3.5" />
-                <span>Salir Pantalla Completa</span>
+                <span className="hidden sm:inline">Salir Pantalla Completa</span>
               </>
             ) : (
               <>
                 <Maximize2 className="w-3.5 h-3.5" />
-                <span>Pantalla Completa</span>
+                <span className="hidden sm:inline">Pantalla Completa</span>
               </>
             )}
           </button>
@@ -781,7 +913,10 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
       </div>
 
       {/* 3D WebGL Canvas Container */}
-      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+      <div
+        ref={mountRef}
+        className="w-full h-full flex-1 min-h-0 touch-none select-none cursor-grab active:cursor-grabbing"
+      />
 
       {/* Floating Hover Information Card */}
       {hoveredInfo && (
