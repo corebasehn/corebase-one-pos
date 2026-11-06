@@ -168,8 +168,9 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
         const pos = new THREE.Vector3();
         binItem.mesh.getWorldPosition(pos);
         camControl.current.desiredTarget.copy(pos);
-        camControl.current.desiredRadius = window.innerWidth < 768 ? 8.5 : 6.0;
-        camControl.current.desiredPhi = 1.15;
+        camControl.current.desiredRadius = window.innerWidth < 768 ? 8.5 : 5.8;
+        camControl.current.desiredPhi = 1.12;
+        camControl.current.desiredTheta = pos.x < 0 ? 0.55 : -0.55;
       }
     }
   }, [selectedProduct]);
@@ -935,8 +936,9 @@ export const Warehouse3D: React.FC<Warehouse3DProps> = ({
         const pos = new THREE.Vector3();
         binItem.mesh.getWorldPosition(pos);
         camControl.current.desiredTarget.copy(pos);
-        camControl.current.desiredRadius = window.innerWidth < 768 ? 8.5 : 6.0;
-        camControl.current.desiredPhi = 1.15;
+        camControl.current.desiredRadius = window.innerWidth < 768 ? 8.5 : 5.8;
+        camControl.current.desiredPhi = 1.12;
+        camControl.current.desiredTheta = pos.x < 0 ? 0.55 : -0.55;
       }
     }
   };
